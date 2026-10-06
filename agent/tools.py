@@ -206,3 +206,31 @@ def answer_generator(state: AgentState) -> AgentState:
 
     logger.info(f"status={state.status}")
     return state
+def decline(state: AgentState) -> AgentState:
+    """
+    Produces a polite decline message when the question is out of scope or
+    retrieval found nothing useful.
+
+    Args:
+        state (AgentState): Current agent state.
+
+    Returns:
+        AgentState: Updated state with final_answer and status set appropriately.
+    """
+    state.execution_path.append("decline")
+
+    if state.in_scope is False:
+        state.final_answer = (
+            "I can only answer questions about the Prevention of Electronic "
+            "Crimes Act, 2016. That question is outside what I have information on."
+        )
+        state.status = "out_of_scope"
+    else:
+        state.final_answer = (
+            "I don't have enough information in the Prevention of Electronic "
+            "Crimes Act, 2016 to answer that question."
+        )
+        state.status = "no_results"
+
+    logger.info(f"status={state.status}")
+    return state
