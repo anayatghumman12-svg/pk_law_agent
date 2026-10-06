@@ -149,3 +149,60 @@ def retriever(state: AgentState) -> AgentState:
 
     logger.info(f"Retrieved {len(chunks)} chunks, top score {top_score:.3f}")
     return state
+_answer_prompt = ChatPromptTemplate.from_template(
+    "You are a legal information assistant for the Prevention of Electronic Crimes "
+    "Act (PECA), 2016 of Pakistan.\n\n"
+    "Use ONLY the context below to answer the question. Do not use outside knowledge. "
+    "If the context does not actually answer the question, say so honestly.\n\n"
+    "Always mention the relevant PECA section number when available.\n\n"
+    "Context:\n{context}\n\n"
+    "Question: {question}\n\n"
+    "Give a concise, factual answer."
+)
+
+
+def _format_context(chunks) -> str:
+    """
+    Joins retrieved chunks into one labelled context block for the prompt.
+
+    Args:
+        chunks (list[RetrievedChunk]): Chunks returned by the retriever tool.
+
+    Returns:
+        str: Text where each chunk is headed by its section number.
+    """
+    return "\n\n".join(f"[PECA Section {c.section}]\n{c.text}" for c in chunks)
+
+
+def answer_generator(state: AgentState) -> AgentState:
+    """
+    Generates a grounded answer from the retrieved chunks using the LLM.
+
+    Runs only when the Retriever found sufficiently relevant chunks.
+    Populates final_answer and status on the state.
+
+    Args:
+        state (AgentState): Current agent state (must have retrieved_chunks set).
+
+    Returns:
+        AgentState: Updated state with final_answer and status filled in.
+    """
+    state.execution_path.append("answer_generator")
+
+    context = _format_context(state.retrieved_chunks)
+
+    try:
+        chain = _answer_prompt | _llm
+        response = chain.invoke({"context": context, "question": state.question})
+        state.final_answer = _extract_text(response.content).strip()
+        state.status = "answered"
+    except Exception as e:
+        logger.error(f"Answer generation failed: {e}")
+        state.final_answer = (
+            "I could not generate an answer because the language model returned "
+            f"an error: {e}"
+        )
+        state.status = "error"
+
+    logger.info(f"status={state.status}")
+    return state
