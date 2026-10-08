@@ -1,40 +1,79 @@
-"""Runs the agent against a set of test questions and prints each execution path.
-
-Demonstrates that in-scope, out-of-scope, and in-scope-but-unanswerable
-questions each take a different route through the graph.
-"""
+import os
+import sys
 import logging
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
-from agent.graph import build_graph
-from agent.state import AgentState
+# Ensure current directory is in Python path
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-logging.basicConfig(level=logging.WARNING)  # quiet the HTTP/AFC noise for this report
+# Configure formal logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("agent_test.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("pk_law_agent")
 
-TEST_QUESTIONS = [
-    ("What is the punishment for cyber stalking?", "in_scope_answerable"),
-    ("How do I bake a chocolate cake?", "out_of_scope"),
-    ("How many people were prosecuted under this Act in its first year after enactment?", "in_scope_unanswerable"),
-]
+from graph import build_graph
 
+# FastAPI App Setup
+app = FastAPI(
+    title="Pakistan Law AI Agent API",
+    description="PECA 2016 Agentic Workflow Endpoint",
+    version="1.0.0"
+)
 
-def run_tests() -> None:
-    """
-    Runs each test question through the compiled agent graph and prints the
-    question, category, resulting execution path, status, and answer.
+class QueryRequest(BaseModel):
+    question: str
 
-    Returns:
-        None.
-    """
-    app = build_graph()
+class QueryResponse(BaseModel):
+    question: str
+    category: str | None = None
+    status: str
+    answer: str
 
-    for question, category in TEST_QUESTIONS:
-        result = app.invoke(AgentState(question=question))
-        print(f"\nQ: {question}")
-        print(f"Category: {category}")
-        print(f"Path: {' -> '.join(result['execution_path'])}")
-        print(f"Status: {result['status']}")
-        print(f"Answer: {result['final_answer'][:150]}")
+app_graph = build_graph()
 
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "law": "Prevention of Electronic Crimes Act, 2016"
+    }
+
+@app.post("/ask", response_model=QueryResponse)
+def ask_agent(payload: QueryRequest):
+    try:
+        result = app_graph.invoke({"question": payload.question})
+        return QueryResponse(
+            question=payload.question,
+            category=result.get("category", "N/A"),
+            status=result.get("status", "completed"),
+            answer=result.get("answer", "No answer generated.")
+        )
+    except Exception as e:
+        logger.error(f"Execution error for query '{payload.question}': {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    run_tests()
+    logger.info("=== Starting Formal Agent Evaluation Tests ===")
+    
+    test_suite = [
+        {"category": "in_scope_answerable", "question": "What is the punishment for cyber stalking?"},
+        {"category": "out_of_scope", "question": "How do I bake a chocolate cake?"},
+        {"category": "in_scope_unanswerable", "question": "How many people were prosecuted under this Act in its first year after enactment?"}
+    ]
+    
+    for test in test_suite:
+        logger.info(f"Target Category: {test['category']}")
+        logger.info(f"Question: {test['question']}")
+        
+        output = app_graph.invoke({"question": test['question']})
+        
+        logger.info(f"Result Status: {output.get('status')}")
+        logger.info(f"Final Answer: {output.get('answer')}\n" + "-"*50)
